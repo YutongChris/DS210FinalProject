@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use plotters::prelude::*;
 
 use std::fs::File;
@@ -10,6 +9,7 @@ use std::fs;
 //use serde_json;
 use petgraph::Graph;
 use petgraph::adj::NodeIndex;
+use std::collections::HashMap;
 
 
 
@@ -169,13 +169,11 @@ impl AmazonDataCleaner {
         }
     }
 
-    pub fn save_clean_data(&self, output_filepath: &str) -> Result<(), Box<dyn Error>> {
-        let serialized_data = serde_json::to_string(&self.data)?;
-        fs::write(output_filepath, serialized_data)?;
-        Ok(())
+    pub fn get_clean_data(&self) -> &Vec<Product> {
+        &self.data
     }
 
-    pub fn summarize_by_category(&self, min_products: usize) {
+    pub fn summarize_top_categories(&self) -> Vec<(String, usize, f64, Option<f64>)> {
         // Step 1: Count the number of products in each category
         let mut category_counts: HashMap<String, usize> = HashMap::new();
         for product in &self.data {
@@ -183,28 +181,30 @@ impl AmazonDataCleaner {
                 *category_counts.entry(category).or_insert(0) += 1;
             }
         }
-
-        // Step 2: Filter categories with more than `min_products` products
-        let filtered_categories: Vec<_> = category_counts
-            .iter()
-            .filter(|&(_, &count)| count >= min_products)
-            .collect();
-
-        // Step 3: Calculate summary statistics for each category
-        for (category, &count) in filtered_categories {
+    
+        // Step 2: Sort categories by count in descending order
+        let mut sorted_categories: Vec<_> = category_counts.into_iter().collect();
+        sorted_categories.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by count in descending order
+    
+        // Take the top 3 categories
+        let top_categories = sorted_categories.into_iter().take(1);
+    
+        // Step 3: Collect summary statistics for the top categories
+        let mut summaries = Vec::new();
+        for (category, count) in top_categories {
             let products_in_category: Vec<_> = self
                 .data
                 .iter()
-                .filter(|p| p.group.as_ref() == Some(category))
+                .filter(|p| p.group.as_ref() == Some(&category))
                 .collect();
-
+    
             let avg_sales_rank: f64 = products_in_category
                 .iter()
                 .filter_map(|p| p.salesrank)
                 .map(|r| r as f64)
                 .sum::<f64>()
                 / count as f64;
-
+    
             let avg_rating: f64 = products_in_category
                 .iter()
                 .flat_map(|p| p.reviews.iter())
@@ -214,18 +214,77 @@ impl AmazonDataCleaner {
                     .iter()
                     .flat_map(|p| p.reviews.iter())
                     .count() as f64;
-
-            println!("Category: {}", category);
-            println!("  Number of Products: {}", count);
-            println!("  Average Sales Rank: {:.2}", avg_sales_rank);
-            if avg_rating.is_nan() {
-                println!("  Average Review Rating: No reviews available");
-            } else {
-                println!("  Average Review Rating: {:.2}", avg_rating);
-            }
+    
+            summaries.push((
+                category,
+                count,
+                avg_sales_rank,
+                if avg_rating.is_nan() { None } else { Some(avg_rating) },
+            ));
         }
+        
+        summaries
+        
+    }
+
+    pub fn create_graphs_for_top_categories(
+        &self,
+        top_categories: Vec<(String, usize, f64, Option<f64>)>,
+    ) -> HashMap<String, Graph<u32, ()>> {
+        let mut category_graphs = HashMap::new();
+    
+        for (category, _, _, _) in top_categories {
+            let mut graph = Graph::<u32, ()>::new();
+            let mut id_to_node = HashMap::new();
+    
+            // Filter products belonging to the current category
+            let products_in_category: Vec<_> = self
+                .data
+                .iter()
+                .filter(|p| p.group.as_ref() == Some(&category))
+                .collect();
+    
+            // Add nodes for all products in the category
+            for product in &products_in_category {
+                let node_index = graph.add_node(product.id);
+                id_to_node.insert(product.id, node_index);
+            }
+    
+            // Add edges based on "similar" ASINs
+            for product in &products_in_category {
+                if let Some(&node) = id_to_node.get(&product.id) {
+                    for similar_asin in &product.similar {
+                        let similar_asin_normalized = similar_asin.trim().to_lowercase(); // Normalize similar ASIN
+                        
+                        if let Some(similar_product) = self
+                            .data
+                            .iter()
+                            .find(|p| p.asin.as_deref().map(|a| a.trim().to_lowercase()) == Some(similar_asin_normalized.clone()))
+                        {
+                            if let Some(&similar_node) = id_to_node.get(&similar_product.id) {
+                                graph.add_edge(node, similar_node, ()); // Add edge
+                            }
+                        }
+                    }
+                }
+            }
+    
+            // Insert the graph for the current category
+            category_graphs.insert(category, graph);
+        }
+    
+        category_graphs
     }
     
+    
+     // Make `print_adjacency_list` a method
+    pub fn print_adjacency_list(&self, graph: &Graph<u32, ()>) {
+        for node in graph.node_indices() {
+            let product_id = graph[node];
+            let neighbors: Vec<u32> = graph.neighbors(node).map(|n| graph[n]).collect();
+            println!("Product {} -> {:?}", product_id, neighbors);
+        }
+    }
 }
 
 impl Product {
@@ -260,51 +319,4 @@ impl Product {
     }
 
     
-}
-
-
-
-pub fn create_graph_from_data(categories: Vec<Category>, edges: Vec<(usize, usize)>) -> Graph<Category, ()> {
-    let mut graph = Graph::<Category, ()>::new();
-
-    // Add nodes to the graph from the category data
-    let mut nodes = HashMap::new();
-    for (index, category) in categories.into_iter().enumerate() {
-        let node_index = graph.add_node(category);
-        nodes.insert(index, node_index);
-    }
-
-    // Add edges to the graph using the given indices
-    for (source, target) in edges {
-        if let (Some(&source_node), Some(&target_node)) = (nodes.get(&source), nodes.get(&target)) {
-            graph.add_edge(source_node, target_node, ());
-        }
-    }
-
-    graph
-}
-
-
-
-// Function to summarize data by category
-pub fn summarize_by_category(graph: &Graph<Category, ()>) {
-    let mut category_summary: HashMap<String, (usize, f64)> = HashMap::new();
-
-    for node_index in graph.node_indices() {
-        let category_name = &graph[node_index].name;
-        let neighbors_count = graph.neighbors(node_index).count();
-
-        category_summary.entry(category_name.clone()).or_insert((0, 0.0)).0 += neighbors_count;
-    }
-
-    let total_nodes = graph.node_count();
-    let mut updated_summary: HashMap<String, (usize, f64)> = HashMap::new();
-    for (category, (total_neighbors, _)) in &category_summary {
-        let average_degree_centrality = *total_neighbors as f64 / total_nodes as f64;
-        updated_summary.insert(category.clone(), (*total_neighbors, average_degree_centrality));
-    }
-
-    for (category, (neighbors, avg_centrality)) in &updated_summary {
-        println!("Category: {}, Total Neighbors: {}, Average Degree Centrality: {:.2}", category, neighbors, avg_centrality);
-    }
 }
