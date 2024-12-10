@@ -162,3 +162,186 @@ for similar_asin in &product.similar {
         }
     }
 }
+
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cleaner = AmazonDataCleaner::new("amazon-meta.txt");
+    cleaner.load_data()?;
+    cleaner.clean_data();
+
+    let top_categories = cleaner.summarize_top_categories();
+    println!("Top 3 Categories:");
+    for (category, count, avg_sales_rank, avg_rating) in &top_categories {
+        println!("Category: {}", category);
+        println!("  Number of Products: {}", count);
+        println!("  Average Sales Rank: {:.2}", avg_sales_rank);
+        match avg_rating {
+            Some(rating) => println!(" Average Review Rating: {:.2}", rating),
+            None => println!("  Average Review Rating: No reviews available"),
+        }
+    }
+
+    let category_graphs = cleaner.create_graphs_for_top_categories(top_categories);
+
+    for (category, graph) in &category_graphs {
+        let avg_degree_centrality = calculate_average_degree_centrality(graph);
+        println!(
+            "Category: {}, Average Degree Centrality: {:.2}",
+            category, avg_degree_centrality
+        );
+    }
+
+    Ok(())
+}
+
+
+/*  pub fn calculate_cross_category_copurchases(
+        category_graphs: &HashMap<String, Graph<(u32, String), ()>>,
+    ) -> HashMap<String, f64> {
+        let mut cross_category_ratios = HashMap::new();
+    
+        for (category, graph) in category_graphs {
+            let mut cross_category_edges = 0;
+            let total_edges = graph.edge_count();
+    
+            for edge in graph.edge_indices() {
+                if let Some((source_node, target_node)) = graph.edge_endpoints(edge) {
+                    let source_category = graph.node_weight(source_node).map(|(_, cat)| cat);
+                    let target_category = graph.node_weight(target_node).map(|(_, cat)| cat);
+    
+                    if let (Some(source_cat), Some(target_cat)) = (source_category, target_category) {
+                        if source_cat != target_cat {
+                            cross_category_edges += 1;
+                            println!(
+                                "Cross-Category Edge: Source Category: {}, Target Category: {}",
+                                source_cat, target_cat
+                            );
+                        } else {
+                            println!(
+                                "In-Category Edge: Source Category: {}, Target Category: {}",
+                                source_cat, target_cat
+                            );
+                        }
+                    } else {
+                        println!("Warning: Missing category for nodes involved in edge {:?}", edge);
+                    }
+                }
+            }
+    
+            println!(
+                "Category: {}, Total Edges: {}, Cross-Category Edges: {}, In-Category Edges: {}",
+                category, total_edges, cross_category_edges, total_edges - cross_category_edges
+            );
+    
+            let cross_purchase_ratio = if total_edges > 0 {
+                cross_category_edges as f64 / total_edges as f64
+            } else {
+                0.0
+            };
+    
+            cross_category_ratios.insert(category.clone(), cross_purchase_ratio);
+        }
+    
+        cross_category_ratios
+    }*/
+
+    #[test]
+    fn test_calculate_cross_category_copurchases() {
+        let mut graph = Graph::<(u32, String), ()>::new();
+
+        // Nodes: (ID, Category)
+        let book_node1 = graph.add_node((1, "Books".to_string()));
+        let book_node2 = graph.add_node((2, "Books".to_string()));
+        let music_node = graph.add_node((3, "Music".to_string()));
+
+        // Add edges
+        graph.add_edge(book_node1, book_node2, ()); // In-category
+        graph.add_edge(book_node1, music_node, ()); // Cross-category
+
+        // Wrap in a HashMap for the test
+        let mut category_graphs = HashMap::new();
+        category_graphs.insert("Books".to_string(), graph.clone());
+        category_graphs.insert("Music".to_string(), graph.clone());
+
+        let cross_category_ratios =
+            AmazonDataAnalysis::calculate_cross_category_copurchases(&category_graphs);
+
+        // Expected results: adjust based on the edges added
+        assert_eq!(cross_category_ratios.get("Books"), Some(&0.5)); // 1 cross-category edge out of 2 total
+        assert_eq!(cross_category_ratios.get("Music"), Some(&0.5)); // 1 cross-category edge out of 2 total
+    }
+
+    pub fn create_graphs_for_top_categories(
+        &self,
+        top_categories: Vec<(String, usize, f64, Option<f64>)>,
+    ) -> HashMap<String, Graph<(u32, String), ()>> {
+        let mut category_graphs = HashMap::new();
+    
+        for (category, _, _, _) in top_categories {
+            let mut graph = Graph::<(u32, String), ()>::new();
+            let mut id_to_node = HashMap::new();
+    
+            let products_in_category: Vec<_> = self
+                .data
+                .iter()
+                .filter(|p| p.group.as_ref() == Some(&category))
+                .collect();
+    
+            println!(
+                "Debug - Category: {}, Total Products in Category: {}",
+                category, products_in_category.len()
+            );
+    
+            for product in &products_in_category {
+                let node_index = graph.add_node((product.id, category.clone()));
+                id_to_node.insert(product.id, node_index);
+                println!(
+                    "Debug - Node Created: Product ID: {}, Category: {}",
+                    product.id, category
+                );
+            }
+    
+            for product in &products_in_category {
+                if let Some(&node) = id_to_node.get(&product.id) {
+                    for similar_asin in &product.similar {
+                        let similar_asin_normalized = similar_asin.trim().to_lowercase();
+    
+                        if let Some(similar_product) = self
+                            .data
+                            .iter()
+                            .find(|p| p.asin.as_deref().map(|a| a.trim().to_lowercase()) == Some(similar_asin_normalized.clone()))
+                        {
+                            if let Some(&similar_node) = id_to_node.get(&similar_product.id) {
+                                graph.add_edge(node, similar_node, ());
+                                println!(
+                                    "Debug - Edge Created: Source ID: {}, Source Category: {}, Target ID: {}, Target Category: {}",
+                                    product.id,
+                                    category,
+                                    similar_product.id,
+                                    similar_product.group.as_deref().unwrap_or("Unknown")
+                                );
+                            }
+                        } else {
+                            println!(
+                                "Debug - No Match Found for Similar ASIN: {} (Normalized: {})",
+                                similar_asin, similar_asin_normalized
+                            );
+                        }
+                    }
+                }
+            }
+    
+            println!(
+                "Debug - Category: {} - Nodes: {}, Edges: {}",
+                category,
+                graph.node_count(),
+                graph.edge_count()
+            );
+    
+            category_graphs.insert(category, graph);
+        }
+    
+        category_graphs
+    }
+    
+    
