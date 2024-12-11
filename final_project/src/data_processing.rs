@@ -3,7 +3,6 @@ use std::io::{BufRead, BufReader};
 use regex::Regex;
 use serde::{Serialize, Deserialize};
 use std::error::Error;
-
 use petgraph::Graph;
 use std::collections::HashMap;
 use rand::seq::SliceRandom;
@@ -36,7 +35,7 @@ pub struct Review {
 
 pub struct AmazonDataCleaner {
     pub filepath: String,
-    pub data: Vec<Product>, // Make the data field public
+    pub data: Vec<Product>, 
     
 }
 
@@ -144,8 +143,6 @@ impl AmazonDataCleaner {
         Ok(())
     }
     
-    
-
     pub fn clean_data(&mut self) {
         self.data.retain(|product| product.asin.is_some());
 
@@ -171,7 +168,7 @@ impl AmazonDataCleaner {
     }
 
     pub fn summarize_top_categories(&self) -> Vec<(String, usize, f64, Option<f64>)> {
-        // Step 1: Count the number of products in each category
+        // Count the number of products in each category
         let mut category_counts: HashMap<String, usize> = HashMap::new();
         for product in &self.data {
             if let Some(category) = product.group.clone() {
@@ -179,14 +176,14 @@ impl AmazonDataCleaner {
             }
         }
     
-        // Step 2: Sort categories by count in descending order
+        // Sort categories by count in descending order
         let mut sorted_categories: Vec<_> = category_counts.into_iter().collect();
         sorted_categories.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by count in descending order
     
         // Take the top 3 categories
         let top_categories = sorted_categories.into_iter().take(3);
     
-        // Step 3: Collect summary statistics for the top categories
+        // Collect summary statistics for the top categories
         let mut summaries = Vec::new();
         for (category, count) in top_categories {
             let products_in_category: Vec<_> = self

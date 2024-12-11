@@ -92,6 +92,7 @@ fn test_adjacency_list() {
         assert!(co_purchase_ratios.contains_key("Music"), "Music category not found in ratios");
         assert!(co_purchase_ratios.contains_key("DVD"), "DVD category not found in ratios");
 
+
         assert_eq!(
             co_purchase_ratios.get("Book").unwrap(),
             &(0.5, 0.5),
