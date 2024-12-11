@@ -1,13 +1,10 @@
-use plotters::prelude::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader}; 
 use regex::Regex;
 use serde::{Serialize, Deserialize};
 use std::error::Error;
-use std::fs;
-//use serde_json;
+
 use petgraph::Graph;
-use petgraph::adj::NodeIndex;
 use std::collections::HashMap;
 use rand::seq::SliceRandom;
 
@@ -56,10 +53,6 @@ impl AmazonDataCleaner {
         }
     }
 
-    pub fn get_data(&self) -> &Vec<Product> {
-        &self.data
-    }
-
     pub fn load_data(&mut self) -> Result<(), Box<dyn Error>> {
         let file = File::open(&self.filepath)?;
         let reader = BufReader::new(file);
@@ -81,15 +74,13 @@ impl AmazonDataCleaner {
     
         // Updated Regex to match date, customer ID, rating, votes, and helpful counts
         let review_regex = Regex::new(r"(\d{4})-(\d{1,2})-(\d{1,2})\s+(?:customer|cutomer):\s+(\S+)\s+rating:\s+(\d+)\s+votes:\s+(\d+)\s+helpful:\s+(\d+)")?;
-
+    
         for line in reader.lines() {
             let line = line?;
             let line = line.trim();
-            //println!("Processing line: {}", line); // Debug: Print each line being processed
     
             if line.starts_with("Id: ") {
                 if product.asin.is_some() {
-                    //println!("Parsed Product: {:?}", product); // Debug statement to check parsed product
                     products.push(product);
                 }
                 product = Product {
@@ -115,7 +106,12 @@ impl AmazonDataCleaner {
             } else if line.starts_with("salesrank: ") {
                 product.salesrank = Some(line[10..].trim().parse().unwrap_or_default());
             } else if line.starts_with("similar: ") {
-                product.similar = line[9..].trim().split_whitespace().skip(1).map(|s| s.to_string()).collect();
+                product.similar = line[9..]
+                    .trim()
+                    .split_whitespace()
+                    .skip(1)
+                    .map(|s| s.to_string())
+                    .collect();
             } else if line.starts_with("categories: ") {
                 product.categories = Some(line[12..].trim().parse().unwrap_or_default());
             } else if line.starts_with("|") {
@@ -136,22 +132,18 @@ impl AmazonDataCleaner {
                     votes: caps[6].parse().unwrap_or_default(),
                     helpful: caps[7].parse().unwrap_or_default(),
                 };
-                //println!("Parsed Review: {:?}", review); // Debug statement to ensure review is parsed correctly
                 product.reviews.push(review);
-            } else {
-                //println!("Line did not match any expected pattern: {}", line); // Debug: Line did not match
             }
         }
     
         if product.asin.is_some() {
-            //println!("Parsed Product: {:?}", product); // Debug statement for the last product
             products.push(product);
         }
     
         self.data = products;
-        //println!("Total Products Loaded: {}", self.data.len()); // Debug to check the total products loaded
         Ok(())
     }
+    
     
 
     pub fn clean_data(&mut self) {
@@ -166,10 +158,6 @@ impl AmazonDataCleaner {
                 product.salesrank = Some(max_salesrank + 1);
             }
         }
-    }
-
-    pub fn get_clean_data(&self) -> &Vec<Product> {
-        &self.data
     }
 
     pub fn random_sample(&self, sample_size: usize) -> Vec<Product> {
@@ -296,10 +284,8 @@ impl AmazonDataCleaner {
         category_graphs
     }
     
-
-    
-     // Make `print_adjacency_list` a method
-    pub fn print_adjacency_list(&self, graph: &Graph<(u32, String), ()>) {
+     // Make `print_adjacency_list` a method: check my adjacency list
+    /*pub fn print_adjacency_list(&self, graph: &Graph<(u32, String), ()>) {
         for node in graph.node_indices() {
             if let Some((product_id, category)) = graph.node_weight(node) {
                 let neighbors: Vec<_> = graph.neighbors(node)
@@ -311,25 +297,25 @@ impl AmazonDataCleaner {
                 );
             }
         }
-    }
+    }*/
     
     pub fn create_global_graph(&self) -> Graph<(u32, String), ()> {
         let mut global_graph = Graph::<(u32, String), ()>::new();
         let mut id_to_node = HashMap::new();
-
+    
         // Add all products as nodes to the global graph
         for product in &self.data {
             let category = product.group.clone().unwrap_or("Unknown".to_string());
             let node_index = global_graph.add_node((product.id, category.clone()));
             id_to_node.insert(product.id, node_index);
         }
-
+    
         // Add edges for all "similar" products
         for product in &self.data {
             if let Some(&source_node) = id_to_node.get(&product.id) {
                 for similar_asin in &product.similar {
                     let similar_asin_normalized = similar_asin.trim().to_lowercase();
-
+    
                     // Match similar product in the dataset
                     if let Some(similar_product) = self
                         .data
@@ -343,21 +329,10 @@ impl AmazonDataCleaner {
                 }
             }
         }
-
-        // Debug: Print edges with their categories
-        for edge in global_graph.edge_indices() {
-            if let Some((source, target)) = global_graph.edge_endpoints(edge) {
-                let source_category = global_graph.node_weight(source).unwrap().1.clone();
-                let target_category = global_graph.node_weight(target).unwrap().1.clone();
-                println!(
-                    "Edge: Source Category: {}, Target Category: {}",
-                    source_category, target_category
-                );
-            }
-        }
-
+    
         global_graph
     }
+    
 }
     
 
@@ -391,6 +366,5 @@ impl Product {
 
         features
     }
-
     
 }

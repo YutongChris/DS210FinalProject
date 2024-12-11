@@ -1,10 +1,8 @@
 mod data_processing;
 mod data_analysis;
 mod test;
-use petgraph::Graph;
-use data_processing::{AmazonDataCleaner, Category};
+use data_processing::AmazonDataCleaner;
 use data_analysis::{calculate_average_degree_centrality, AmazonDataAnalysis};
-use std::error::Error;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize AmazonDataCleaner with the dataset
@@ -12,8 +10,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cleaner.load_data()?; // Load the data from the file
     cleaner.clean_data(); // Clean the data (e.g., removing duplicates or invalid entries)
 
-    // Generate a random sample of 2000 products from the dataset
-    let sample_size = 30000;
+    // Generate a random sample 
+    let sample_size = 100000;
     let random_sample = cleaner.random_sample(sample_size);
 
     // Create a new instance of AmazonDataCleaner for the random sample
